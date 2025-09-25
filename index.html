@@ -7,13 +7,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="冷凍櫃控制">
-    <!-- PWA 檔案路徑修正 -->
     <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
     <link rel="manifest" href="./manifest.json">
     
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* CSS 樣式與之前版本相同，此處省略 */
         body { font-family: 'Inter', sans-serif; touch-action: manipulation; }
         .param-card { background-color: #ffffff; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
         .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
@@ -70,15 +68,12 @@
     </div>
 
     <script>
-        // JS 程式碼與 v4 版本相同，但 service worker 路徑已修正
         let bleDevice, bleCharacteristic;
         let bleBuffer = '';
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
         
-        // DOM Elements
         const connectBtn = document.getElementById('connect-btn');
-        // ... 其他 DOM 元素宣告 ...
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
         const controlPanel = document.getElementById('control-panel');
@@ -125,7 +120,7 @@
                         <label for="num-${p.id}" class="block text-sm font-medium text-gray-700 mb-2">${p.name}</label>
                         <div class="flex items-center gap-3">
                             <input type="range" id="range-${p.id}" data-param-id="${p.id}" min="${p.min}" max="${p.max}" step="${p.step}">
-                            <input type="number" id="num-${p.id}" data-param-id="${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" class="bg-gray-50">
+                            <input type="number" id="num-${p.id}" data-param-id="${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" class="bg-ray-50">
                         </div>
                     </div>`;
             });
@@ -153,7 +148,9 @@
             const statusElem = document.getElementById(`status-${statusId}`);
             const config = statusConfig.find(s => s.id === statusId);
             if (statusElem && config) {
-                let displayValue = (typeof value === 'number') ? value.toFixed(1) : value;
+                // ★★★ 核心修正：明確檢查 undefined 和 null，讓 0 可以正確顯示 ★★★
+                const isValueAvailable = value !== undefined && value !== null;
+                const displayValue = isValueAvailable ? (typeof value === 'number' ? value.toFixed(1) : value) : '--';
                 statusElem.textContent = `${displayValue} ${config.unit || ''}`;
             }
         }
@@ -214,6 +211,7 @@
             showMessage('藍芽連線已中斷');
             bleDevice = null;
             bleCharacteristic = null;
+            statusConfig.forEach(s => updateStatusUI(s.id, undefined));
         }
 
         function handleNotifications(event) {
@@ -233,8 +231,9 @@
                             if (key !== 'type') updateParamUI(key, data[key]);
                         });
                     } else if (data.type === 'status' && data.modbusValues) {
-                        Object.keys(data.modbusValues).forEach(key => {
-                             updateStatusUI(key, data.modbusValues[key]);
+                        statusConfig.forEach(s => {
+                            const receivedValue = data.modbusValues[s.id];
+                            updateStatusUI(s.id, receivedValue);
                         });
                     }
                 } catch (error) {
@@ -276,7 +275,6 @@
         generateUI();
         bindEventListeners();
 
-        // PWA Service Worker 註冊 (路徑已修正)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./service-worker.js')
