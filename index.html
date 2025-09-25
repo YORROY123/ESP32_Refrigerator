@@ -13,18 +13,20 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* Google 字體，讓介面更美觀 */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
             touch-action: manipulation;
         }
-        .param-card {
+        .card {
             background-color: #ffffff;
             border-radius: 0.75rem;
             padding: 1.5rem;
             box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
             transition: all 0.3s ease-in-out;
         }
-        .param-card:hover {
+        .card:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.1);
         }
@@ -42,51 +44,36 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
+        /* 美化滑軌 */
         input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 8px;
-            background: #d1d5db;
-            border-radius: 5px;
-            outline: none;
-            opacity: 0.7;
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 8px; background: #d1d5db;
+            border-radius: 5px; outline: none; opacity: 0.7;
             transition: opacity .2s;
         }
-        input[type="range"]:hover {
-            opacity: 1;
-        }
+        input[type="range"]:hover { opacity: 1; }
         input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 24px;
-            height: 24px;
-            background: #3b82f6;
-            cursor: pointer;
-            border-radius: 50%;
-            border: 4px solid #fff;
+            -webkit-appearance: none; appearance: none;
+            width: 24px; height: 24px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%; border: 4px solid #fff;
             box-shadow: 0 0 2px rgba(0,0,0,0.3);
         }
         input[type="range"]::-moz-range-thumb {
-            width: 24px;
-            height: 24px;
-            background: #3b82f6;
-            cursor: pointer;
-            border-radius: 50%;
-            border: 4px solid #fff;
+            width: 24px; height: 24px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%; border: 4px solid #fff;
             box-shadow: 0 0 2px rgba(0,0,0,0.3);
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
-    <div class="w-full max-w-4xl mx-auto">
+<body class="bg-gray-100 min-h-screen p-4">
+    <div class="w-full max-w-7xl mx-auto">
         <header class="text-center mb-6">
             <h1 class="text-3xl font-bold text-gray-800">ESP32 冷凍櫃控制介面</h1>
             <p class="text-gray-500">透過 Web Bluetooth 即時監控與調整參數</p>
         </header>
 
-        <div class="param-card mb-6">
-            <div class="flex justify-between items-center">
+        <div class="card mb-6">
+            <div class="flex flex-wrap justify-between items-center gap-4">
                 <div class="flex items-center gap-3">
                     <div id="status-dot" class="status-dot status-disconnected"></div>
                     <span id="status-text" class="font-semibold text-gray-700">已斷線</span>
@@ -96,14 +83,28 @@
                 </button>
             </div>
         </div>
+        
+        <div id="main-content" class="grid grid-cols-1 lg:grid-cols-2 gap-6 opacity-50 pointer-events-none">
+            <!-- 參數設定區 -->
+            <section>
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">參數設定</h2>
+                <div id="control-panel" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- 參數卡片將由 JS 動態生成 -->
+                </div>
+            </section>
 
-        <main id="control-panel" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 opacity-50 pointer-events-none">
-            </main>
+            <!-- 即時狀態監控區 -->
+            <section>
+                 <h2 class="text-2xl font-semibold text-gray-700 mb-4">即時狀態監控</h2>
+                 <div id="status-dashboard" class="card grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-6">
+                    <!-- 狀態數據將由 JS 動態生成 -->
+                 </div>
+            </section>
+        </div>
 
         <div id="message-box" class="fixed bottom-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-xl opacity-0 transition-opacity duration-300">
             訊息
         </div>
-
     </div>
 
     <script>
@@ -112,15 +113,9 @@
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
         const controlPanel = document.getElementById('control-panel');
+        const statusDashboard = document.getElementById('status-dashboard');
+        const mainContent = document.getElementById('main-content');
         const messageBox = document.getElementById('message-box');
-
-        // PWA Installation UI
-        let deferredPrompt;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            deferredPrompt = e;
-            showMessage('此應用程式可安裝至主畫面，提供離線使用體驗！');
-        });
 
         // BLE Variables
         let bleDevice;
@@ -128,33 +123,51 @@
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-        // 參數定義
+        // 可設定參數的定義
         const paramsConfig = [
-            { name: "門框感測器偏移值", min: -20, max: 0, step: 1, unit: "°C" },
-            { name: "除霧回差值", min: 0, max: 10, step: 1, unit: "°C" },
-            { name: "目標溫度", min: -35, max: -15, step: 1, unit: "°C" },
-            { name: "回差溫度", min: 1, max: 10, step: 0.5, unit: "°C" },
-            { name: "初始膨脹閥開度", min: 50, max: 500, step: 10, unit: "" },
-            { name: "除霜間隔", min: 30, max: 720, step: 30, unit: "分鐘" },
-            { name: "除霜壓縮機轉速", min: 40, max: 80, step: 1, unit: "Hz" },
-            { name: "除霜超時", min: 5, max: 60, step: 1, unit: "分鐘" },
-            { name: "除霜終止溫度", min: 10, max: 30, step: 1, unit: "°C" },
-            { name: "滴水時間", min: 1, max: 10, step: 1, unit: "分鐘" },
-            { name: "過熱度最小值", min: -2, max: 5, step: 0.5, unit: "°C" },
-            { name: "過熱度最大值", min: 0, max: 10, step: 0.5, unit: "°C" },
-            { name: "膨脹閥步進值", min: 1, max: 50, step: 1, unit: "" }
+            { key: "defogoffset", name: "門框感測器偏移值", min: -20, max: 0, step: 1, unit: "°C" },
+            { key: "defogofftemp", name: "除霧回差值", min: 0, max: 10, step: 1, unit: "°C" },
+            { key: "targetTemp", name: "目標溫度", min: -35, max: -15, step: 1, unit: "°C" },
+            { key: "controlTemp", name: "回差溫度", min: 1, max: 10, step: 0.5, unit: "°C" },
+            { key: "eev_opening", name: "初始膨脹閥開度", min: 50, max: 500, step: 10, unit: "" },
+            { key: "defrostInterval", name: "除霜間隔", min: 30, max: 720, step: 30, unit: "分鐘" },
+            { key: "defrostCompressorSpeed", name: "除霜壓縮機轉速", min: 40, max: 80, step: 1, unit: "" },
+            { key: "defrostT1", name: "除霜超時", min: 5, max: 60, step: 1, unit: "分鐘" },
+            { key: "DEFROST_HEATER", name: "除霜終止溫度", min: 10, max: 30, step: 1, unit: "°C" },
+            { key: "defrostT2", name: "滴水時間", min: 1, max: 10, step: 1, unit: "分鐘" },
+            { key: "SHDMin", name: "過熱度最小值", min: -2, max: 5, step: 0.5, unit: "°C" },
+            { key: "SHDMax", name: "過熱度最大值", min: 0, max: 10, step: 0.5, unit: "°C" },
+            { key: "EEVStep", name: "膨脹閥步進值", min: 1, max: 50, step: 1, unit: "" }
         ];
+
+        // 狀態監控數據的定義
+        const statusConfig = [
+            { key: "storageTemperature1", name: "庫溫1", unit: "°C" },
+            { key: "storageTemperature2", name: "庫溫2", unit: "°C" },
+            { key: "evapCoilTemperature", name: "蒸發盤管溫度", unit: "°C" },
+            { key: "SHD_temperature", name: "過熱度", unit: "°C" },
+            { key: "cpDischargeTemperature", name: "壓縮機排氣溫度", unit: "°C" },
+            { key: "ambientTemperature", name: "環境溫度", unit: "°C" },
+            { key: "compressorSpeedFeedback", name: "壓縮機轉速", unit: "" },
+            { key: "eevOpening", name: "膨脹閥開度", unit: "" },
+            { key: "highPressure", name: "高壓", unit: "bar" },
+            { key: "lowPressure", name: "低壓", unit: "bar" },
+            { key: "systemMode", name: "系統模式", unit: "" },
+            { key: "errorCode", name: "錯誤碼", unit: "" },
+        ];
+
 
         // 動態生成控制面板
         function generateControlPanel() {
             controlPanel.innerHTML = ''; // 清空
-            paramsConfig.forEach((p, i) => {
+            paramsConfig.forEach(p => {
                 const card = `
-                    <div class="param-card">
-                        <label for="param-${i}" class="block text-sm font-medium text-gray-700">${p.name}</label>
-                        <div class="flex items-center justify-between mt-2">
-                            <input type="range" id="param-${i}" min="${p.min}" max="${p.max}" step="${p.step}" class="w-full mr-4">
-                            <span id="value-${i}" class="font-bold text-lg text-blue-600 w-20 text-right">-- ${p.unit}</span>
+                    <div class="card">
+                        <label for="param-${p.key}" class="block text-sm font-medium text-gray-700">${p.name}</label>
+                        <div class="flex items-center gap-3 mt-2">
+                            <input type="range" id="param-${p.key}" data-param-key="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" class="w-full">
+                            <input type="number" id="value-input-${p.key}" data-param-key="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" 
+                                   class="w-24 text-center font-bold text-lg text-blue-600 bg-gray-100 rounded-md p-1 border border-gray-300">
                         </div>
                     </div>
                 `;
@@ -162,43 +175,83 @@
             });
             // 補上動作按鈕
              controlPanel.innerHTML += `
-                <div class="param-card md:col-span-2 lg:col-span-3 flex justify-center items-center gap-4">
+                <div class="card md:col-span-2 flex flex-col sm:flex-row justify-center items-center gap-4">
                      <button id="defrost-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
                          手動強制除霜
-                     </button>
-                     <button id="refresh-btn" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
-                         重新整理數值
                      </button>
                 </div>
             `;
         }
+
+        // 動態生成狀態儀表板
+        function generateStatusDashboard() {
+            statusDashboard.innerHTML = ''; // 清空
+            statusConfig.forEach(s => {
+                const item = `
+                    <div class="flex flex-col">
+                        <span class="text-sm text-gray-500">${s.name}</span>
+                        <span id="status-${s.key}" class="text-2xl font-bold text-gray-800">--</span>
+                    </div>
+                `;
+                statusDashboard.innerHTML += item;
+            });
+        }
         
-        // 更新 UI 上的數值
-        function updateUIValue(index, value) {
-            const slider = document.getElementById(`param-${index}`);
-            const valueText = document.getElementById(`value-${index}`);
-            if (slider && valueText) {
+        // 更新 UI 上的參數值 (滑軌和輸入框)
+        function updateParamUI(key, value) {
+            const slider = document.getElementById(`param-${key}`);
+            const valueInput = document.getElementById(`value-input-${key}`);
+            if (slider && valueInput) {
                 const floatValue = parseFloat(value);
                 slider.value = floatValue;
-                valueText.textContent = `${floatValue.toFixed(1)} ${paramsConfig[index].unit}`;
+                valueInput.value = floatValue.toFixed(p.step < 1 ? 1 : 0);
             }
         }
+        
+        // 更新狀態儀表板的數值
+        function updateStatusDashboard(data) {
+             statusConfig.forEach(s => {
+                const element = document.getElementById(`status-${s.key}`);
+                if (element && data[s.key] !== undefined) {
+                    let value = parseFloat(data[s.key]);
+                    let displayValue = isNaN(value) ? '--' : value.toFixed(s.unit === '°C' ? 1 : 0);
+                    element.textContent = `${displayValue} ${s.unit}`;
+                }
+            });
+        }
+
 
         // 綁定事件監聽
         function bindEventListeners() {
-            paramsConfig.forEach((p, i) => {
-                const slider = document.getElementById(`param-${i}`);
+            paramsConfig.forEach(p => {
+                const slider = document.getElementById(`param-${p.key}`);
+                const valueInput = document.getElementById(`value-input-${p.key}`);
+
+                // 滑軌變動 -> 更新數字框
                 slider.addEventListener('input', (e) => {
-                    const valueText = document.getElementById(`value-${i}`);
-                    valueText.textContent = `${parseFloat(e.target.value).toFixed(1)} ${p.unit}`;
+                    valueInput.value = parseFloat(e.target.value).toFixed(p.step < 1 ? 1 : 0);
                 });
+                // 滑軌放開 -> 發送指令
                 slider.addEventListener('change', (e) => {
-                    sendBleCommand(`${i},${e.target.value}`);
+                    sendBleCommand({ param: p.key, value: parseFloat(e.target.value) });
+                });
+
+                // 數字框變動 -> 更新滑軌
+                valueInput.addEventListener('input', (e) => {
+                     slider.value = e.target.value;
+                });
+                // 數字框完成編輯 -> 發送指令
+                valueInput.addEventListener('change', (e) => {
+                    let value = parseFloat(e.target.value);
+                    if (value < p.min) value = p.min;
+                    if (value > p.max) value = p.max;
+                    e.target.value = value;
+                    slider.value = value;
+                    sendBleCommand({ param: p.key, value: value });
                 });
             });
 
-            document.getElementById('defrost-btn').addEventListener('click', () => sendBleCommand('defrost'));
-            document.getElementById('refresh-btn').addEventListener('click', () => sendBleCommand('refresh'));
+            document.getElementById('defrost-btn').addEventListener('click', () => sendBleCommand({ command: 'force_defrost' }));
         }
 
         // 連線按鈕事件
@@ -210,12 +263,12 @@
 
             if (bleDevice && bleDevice.gatt.connected) {
                 bleDevice.gatt.disconnect();
-                updateStatus('已斷線', 'disconnected');
             } else {
                 try {
                     updateStatus('正在搜尋...', 'connecting');
                     bleDevice = await navigator.bluetooth.requestDevice({
-                        filters: [{ services: [SERVICE_UUID] }]
+                        filters: [{ services: [SERVICE_UUID] }],
+                        optionalServices: [SERVICE_UUID]
                     });
 
                     bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
@@ -243,54 +296,57 @@
             showMessage('藍芽連線已中斷');
         }
 
-        // 處理收到的通知
+        // 處理收到的 BLE 通知
         function handleNotifications(event) {
             const value = new TextDecoder().decode(event.target.value);
             console.log('收到資料:', value);
-            
-            const [command, data] = value.split('=');
-
-            if (command === 'all') {
-                const allValues = data.split(',');
-                allValues.forEach((val, index) => {
-                    if (index < paramsConfig.length) {
-                        updateUIValue(index, val);
+            try {
+                const data = JSON.parse(value);
+                
+                // 更新可設定的參數
+                paramsConfig.forEach(p => {
+                    if (data[p.key] !== undefined) {
+                        updateParamUI(p.key, data[p.key]);
                     }
                 });
-                showMessage('所有參數已同步');
-            } else if (command.startsWith('p')) {
-                const index = parseInt(command.substring(1));
-                updateUIValue(index, data);
-            } else if (command === 'ack') {
-                if(data === 'defrost') showMessage('已送出除霜指令！');
+
+                // 更新狀態儀表板
+                if(data.modbusValues) {
+                    updateStatusDashboard(data.modbusValues);
+                }
+
+            } catch (error) {
+                console.error("解析 JSON 失敗:", error, "原始資料:", value);
             }
         }
         
-        // 發送指令到 ESP32
-        async function sendBleCommand(command) {
+        // 發送 JSON 指令到 ESP32
+        async function sendBleCommand(commandObject) {
             if (!bleCharacteristic) {
                 showMessage('尚未連線，無法傳送指令');
                 return;
             }
             try {
+                const commandString = JSON.stringify(commandObject);
                 const encoder = new TextEncoder();
-                await bleCharacteristic.writeValue(encoder.encode(command));
+                await bleCharacteristic.writeValue(encoder.encode(commandString));
+                console.log('已發送指令:', commandString);
             } catch (error) {
                 console.error('傳送失敗:', error);
                 showMessage('傳送指令失敗！');
             }
         }
 
-        // 更新狀態顯示
+        // 更新連線狀態顯示
         function updateStatus(text, statusClass) {
             statusText.textContent = text;
             statusDot.className = `status-dot status-${statusClass}`;
             connectBtn.textContent = (statusClass === 'connected') ? '中斷連線' : '連線到冷凍櫃';
 
             if (statusClass === 'connected') {
-                controlPanel.classList.remove('opacity-50', 'pointer-events-none');
+                mainContent.classList.remove('opacity-50', 'pointer-events-none');
             } else {
-                controlPanel.classList.add('opacity-50', 'pointer-events-none');
+                mainContent.classList.add('opacity-50', 'pointer-events-none');
             }
         }
         
@@ -305,18 +361,15 @@
 
         // 初始化
         generateControlPanel();
+        generateStatusDashboard();
         bindEventListeners();
 
-        // Register Service Worker
+        // 註冊 Service Worker (PWA 功能)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/service-worker.js')
-                    .then(registration => {
-                        console.log('Service Worker 註冊成功:', registration.scope);
-                    })
-                    .catch(error => {
-                        console.log('Service Worker 註冊失敗:', error);
-                    });
+                    .then(registration => console.log('Service Worker 註冊成功:', registration.scope))
+                    .catch(error => console.log('Service Worker 註冊失敗:', error));
             });
         }
     </script>
