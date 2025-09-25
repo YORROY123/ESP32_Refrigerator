@@ -13,8 +13,8 @@
     <!-- ★★★ 修正：將分頁圖示指向 PNG 檔案 ★★★ -->
     <link rel="icon" type="image/png" href="icons/icon-192x192.png">
 
-    <!-- ★★★ 修正：改用 CDN 載入 Tailwind CSS 以確保排版正常 ★★★ -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ★★★ 修正：改回使用本地 CSS 檔案，以解決 Service Worker 的 CORS 問題 ★★★ -->
+    <link rel="stylesheet" href="css/tailwind.css">
     
     <style>
         body { font-family: 'Inter', sans-serif; touch-action: manipulation; }
