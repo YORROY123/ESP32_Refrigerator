@@ -24,12 +24,23 @@
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         input[type="number"] { width: 70px; text-align: right; border-radius: 0.375rem; border: 1px solid #d1d5db; padding: 0.25rem 0.5rem; }
         input[type="range"] { flex-grow: 1; }
+
+        /* ★★★ 新增：ITRI GEL 藝術字樣式 ★★★ */
+        .logo-text {
+            font-weight: 800; /* 粗體字 */
+            background: linear-gradient(45deg, #3B82F6, #10B981); /* 藍色到綠色的漸層 */
+            -webkit-background-clip: text; /* 將背景裁切成文字的形狀 (適用於 Chrome/Safari) */
+            background-clip: text;
+            color: transparent; /* 讓原本的文字顏色變透明 */
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen text-gray-800 p-4">
     <div class="w-full max-w-7xl mx-auto">
         <header class="text-center mb-6">
-            <h1 class="text-3xl font-bold">ESP32 冷凍櫃控制介面</h1>
+            <!-- ★★★ 新增：ITRI GEL 藝術字標題 ★★★ -->
+            <div class="logo-text text-4xl mb-2">ITRI GEL</div>
+            <h1 class="text-2xl font-bold">ESP32 冷凍櫃控制介面</h1>
             <p class="text-gray-500">透過 Web Bluetooth 即時監控與調整參數</p>
         </header>
 
@@ -45,7 +56,7 @@
             </div>
         </div>
 
-        <!-- ★★★ 全新的響應式主佈局 ★★★ -->
+        <!-- 全新的響應式主佈局 -->
         <main id="control-panel" class="grid grid-cols-1 lg:grid-cols-3 gap-6 opacity-50 pointer-events-none">
             
             <!-- 左側參數區 (大螢幕佔 2/3) -->
@@ -74,7 +85,7 @@
     </div>
 
     <script>
-        // JavaScript 程式碼維持不變，因為佈局邏輯已由 CSS (Tailwind) 處理
+        // JavaScript 程式碼維持不變
         let bleDevice, bleCharacteristic;
         let bleBuffer = '';
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
