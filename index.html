@@ -201,10 +201,12 @@
         function updateParamUI(key, value) {
             const slider = document.getElementById(`param-${key}`);
             const valueInput = document.getElementById(`value-input-${key}`);
-            if (slider && valueInput) {
+            const paramInfo = paramsConfig.find(p => p.key === key);
+
+            if (slider && valueInput && paramInfo) {
                 const floatValue = parseFloat(value);
                 slider.value = floatValue;
-                valueInput.value = floatValue.toFixed(p.step < 1 ? 1 : 0);
+                valueInput.value = floatValue.toFixed(paramInfo.step < 1 ? 1 : 0);
             }
         }
         
@@ -245,7 +247,7 @@
                     let value = parseFloat(e.target.value);
                     if (value < p.min) value = p.min;
                     if (value > p.max) value = p.max;
-                    e.target.value = value;
+                    e.target.value = value.toFixed(p.step < 1 ? 1 : 0);
                     slider.value = value;
                     sendBleCommand({ param: p.key, value: value });
                 });
@@ -303,16 +305,19 @@
             try {
                 const data = JSON.parse(value);
                 
-                // 更新可設定的參數
-                paramsConfig.forEach(p => {
-                    if (data[p.key] !== undefined) {
-                        updateParamUI(p.key, data[p.key]);
+                // 檢查封包類型
+                if (data.type === 'params') {
+                    // 更新可設定的參數
+                    paramsConfig.forEach(p => {
+                        if (data[p.key] !== undefined) {
+                            updateParamUI(p.key, data[p.key]);
+                        }
+                    });
+                } else if (data.type === 'status') {
+                    // 更新狀態儀表板
+                    if(data.modbusValues) {
+                        updateStatusDashboard(data.modbusValues);
                     }
-                });
-
-                // 更新狀態儀表板
-                if(data.modbusValues) {
-                    updateStatusDashboard(data.modbusValues);
                 }
 
             } catch (error) {
@@ -375,3 +380,4 @@
     </script>
 </body>
 </html>
+
