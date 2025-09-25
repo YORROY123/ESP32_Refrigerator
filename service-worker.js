@@ -2,7 +2,7 @@ const CACHE_NAME = 'esp32-freezer-control-v1';
 const urlsToCache = [
     '/',
     '/index.html',
-    'https://cdn.tailwindcss.com',
+    'css/tailwind.css', // <-- 確保這一行存在
     '/icons/icon-192x192.png',
     '/icons/icon-512x512.png'
 ];
