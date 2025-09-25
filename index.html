@@ -9,11 +9,13 @@
     <meta name="apple-mobile-web-app-title" content="冷凍櫃控制">
     <link rel="apple-touch-icon" href="icons/icon-192x192.png">
     <link rel="manifest" href="./manifest.json">
-
-    <!-- ★★★ 新增：明確指定 favicon.ico 的相對路徑 ★★★ -->
-    <link rel="icon" type="image/png" href="icons/icon-192x192.png">
     
-    <link rel="stylesheet" href="css/tailwind.css">
+    <!-- ★★★ 修正：將分頁圖示指向 PNG 檔案 ★★★ -->
+    <link rel="icon" type="image/png" href="icons/icon-192x192.png">
+
+    <!-- ★★★ 修正：改用 CDN 載入 Tailwind CSS 以確保排版正常 ★★★ -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
     <style>
         body { font-family: 'Inter', sans-serif; touch-action: manipulation; }
         .param-card { background-color: #ffffff; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
