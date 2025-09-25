@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 冷凍櫃控制</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="冷凍櫃控制">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    
+    <link rel="manifest" href="/manifest.json">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: manipulation;
+        }
+        .param-card {
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transition: all 0.3s ease-in-out;
+        }
+        .param-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.1);
+        }
+        .status-dot {
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+        .status-disconnected { background-color: #ef4444; }
+        .status-connecting { background-color: #f59e0b; }
+        .status-connected { background-color: #22c55e; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #d1d5db;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            background: #3b82f6;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 4px solid #fff;
+            box-shadow: 0 0 2px rgba(0,0,0,0.3);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            background: #3b82f6;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 4px solid #fff;
+            box-shadow: 0 0 2px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-4xl mx-auto">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">ESP32 冷凍櫃控制介面</h1>
+            <p class="text-gray-500">透過 Web Bluetooth 即時監控與調整參數</p>
+        </header>
+
+        <div class="param-card mb-6">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div id="status-dot" class="status-dot status-disconnected"></div>
+                    <span id="status-text" class="font-semibold text-gray-700">已斷線</span>
+                </div>
+                <button id="connect-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    連線到冷凍櫃
+                </button>
+            </div>
+        </div>
+
+        <main id="control-panel" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 opacity-50 pointer-events-none">
+            </main>
+
+        <div id="message-box" class="fixed bottom-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-xl opacity-0 transition-opacity duration-300">
+            訊息
+        </div>
+
+    </div>
+
+    <script>
+        // DOM Elements
+        const connectBtn = document.getElementById('connect-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const controlPanel = document.getElementById('control-panel');
+        const messageBox = document.getElementById('message-box');
+
+        // PWA Installation UI
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            showMessage('此應用程式可安裝至主畫面，提供離線使用體驗！');
+        });
+
+        // BLE Variables
+        let bleDevice;
+        let bleCharacteristic;
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+        // 參數定義
+        const paramsConfig = [
+            { name: "門框感測器偏移值", min: -20, max: 0, step: 1, unit: "°C" },
+            { name: "除霧回差值", min: 0, max: 10, step: 1, unit: "°C" },
+            { name: "目標溫度", min: -35, max: -15, step: 1, unit: "°C" },
+            { name: "回差溫度", min: 1, max: 10, step: 0.5, unit: "°C" },
+            { name: "初始膨脹閥開度", min: 50, max: 500, step: 10, unit: "" },
+            { name: "除霜間隔", min: 30, max: 720, step: 30, unit: "分鐘" },
+            { name: "除霜壓縮機轉速", min: 40, max: 80, step: 1, unit: "Hz" },
+            { name: "除霜超時", min: 5, max: 60, step: 1, unit: "分鐘" },
+            { name: "除霜終止溫度", min: 10, max: 30, step: 1, unit: "°C" },
+            { name: "滴水時間", min: 1, max: 10, step: 1, unit: "分鐘" },
+            { name: "過熱度最小值", min: -2, max: 5, step: 0.5, unit: "°C" },
+            { name: "過熱度最大值", min: 0, max: 10, step: 0.5, unit: "°C" },
+            { name: "膨脹閥步進值", min: 1, max: 50, step: 1, unit: "" }
+        ];
+
+        // 動態生成控制面板
+        function generateControlPanel() {
+            controlPanel.innerHTML = ''; // 清空
+            paramsConfig.forEach((p, i) => {
+                const card = `
+                    <div class="param-card">
+                        <label for="param-${i}" class="block text-sm font-medium text-gray-700">${p.name}</label>
+                        <div class="flex items-center justify-between mt-2">
+                            <input type="range" id="param-${i}" min="${p.min}" max="${p.max}" step="${p.step}" class="w-full mr-4">
+                            <span id="value-${i}" class="font-bold text-lg text-blue-600 w-20 text-right">-- ${p.unit}</span>
+                        </div>
+                    </div>
+                `;
+                controlPanel.innerHTML += card;
+            });
+            // 補上動作按鈕
+             controlPanel.innerHTML += `
+                <div class="param-card md:col-span-2 lg:col-span-3 flex justify-center items-center gap-4">
+                     <button id="defrost-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
+                         手動強制除霜
+                     </button>
+                     <button id="refresh-btn" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
+                         重新整理數值
+                     </button>
+                </div>
+            `;
+        }
+        
+        // 更新 UI 上的數值
+        function updateUIValue(index, value) {
+            const slider = document.getElementById(`param-${index}`);
+            const valueText = document.getElementById(`value-${index}`);
+            if (slider && valueText) {
+                const floatValue = parseFloat(value);
+                slider.value = floatValue;
+                valueText.textContent = `${floatValue.toFixed(1)} ${paramsConfig[index].unit}`;
+            }
+        }
+
+        // 綁定事件監聽
+        function bindEventListeners() {
+            paramsConfig.forEach((p, i) => {
+                const slider = document.getElementById(`param-${i}`);
+                slider.addEventListener('input', (e) => {
+                    const valueText = document.getElementById(`value-${i}`);
+                    valueText.textContent = `${parseFloat(e.target.value).toFixed(1)} ${p.unit}`;
+                });
+                slider.addEventListener('change', (e) => {
+                    sendBleCommand(`${i},${e.target.value}`);
+                });
+            });
+
+            document.getElementById('defrost-btn').addEventListener('click', () => sendBleCommand('defrost'));
+            document.getElementById('refresh-btn').addEventListener('click', () => sendBleCommand('refresh'));
+        }
+
+        // 連線按鈕事件
+        connectBtn.addEventListener('click', async () => {
+            if (!navigator.bluetooth) {
+                alert('您的瀏覽器不支援 Web Bluetooth！請使用 Chrome, Edge 或 Safari。');
+                return;
+            }
+
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+                updateStatus('已斷線', 'disconnected');
+            } else {
+                try {
+                    updateStatus('正在搜尋...', 'connecting');
+                    bleDevice = await navigator.bluetooth.requestDevice({
+                        filters: [{ services: [SERVICE_UUID] }]
+                    });
+
+                    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                    updateStatus('正在連線...', 'connecting');
+                    const server = await bleDevice.gatt.connect();
+                    const service = await server.getPrimaryService(SERVICE_UUID);
+                    bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+                    await bleCharacteristic.startNotifications();
+                    bleCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+                    
+                    updateStatus('已連線', 'connected');
+                    showMessage('連線成功！');
+                } catch (error) {
+                    console.error('連線失敗:', error);
+                    updateStatus('連線失敗', 'disconnected');
+                    showMessage(`錯誤: ${error.message.split('.')[0]}`);
+                }
+            }
+        });
+        
+        // 處理斷線
+        function onDisconnected() {
+            updateStatus('已斷線', 'disconnected');
+            showMessage('藍芽連線已中斷');
+        }
+
+        // 處理收到的通知
+        function handleNotifications(event) {
+            const value = new TextDecoder().decode(event.target.value);
+            console.log('收到資料:', value);
+            
+            const [command, data] = value.split('=');
+
+            if (command === 'all') {
+                const allValues = data.split(',');
+                allValues.forEach((val, index) => {
+                    if (index < paramsConfig.length) {
+                        updateUIValue(index, val);
+                    }
+                });
+                showMessage('所有參數已同步');
+            } else if (command.startsWith('p')) {
+                const index = parseInt(command.substring(1));
+                updateUIValue(index, data);
+            } else if (command === 'ack') {
+                if(data === 'defrost') showMessage('已送出除霜指令！');
+            }
+        }
+        
+        // 發送指令到 ESP32
+        async function sendBleCommand(command) {
+            if (!bleCharacteristic) {
+                showMessage('尚未連線，無法傳送指令');
+                return;
+            }
+            try {
+                const encoder = new TextEncoder();
+                await bleCharacteristic.writeValue(encoder.encode(command));
+            } catch (error) {
+                console.error('傳送失敗:', error);
+                showMessage('傳送指令失敗！');
+            }
+        }
+
+        // 更新狀態顯示
+        function updateStatus(text, statusClass) {
+            statusText.textContent = text;
+            statusDot.className = `status-dot status-${statusClass}`;
+            connectBtn.textContent = (statusClass === 'connected') ? '中斷連線' : '連線到冷凍櫃';
+
+            if (statusClass === 'connected') {
+                controlPanel.classList.remove('opacity-50', 'pointer-events-none');
+            } else {
+                controlPanel.classList.add('opacity-50', 'pointer-events-none');
+            }
+        }
+        
+        // 顯示短暫訊息
+        function showMessage(text) {
+            messageBox.textContent = text;
+            messageBox.classList.remove('opacity-0');
+            setTimeout(() => {
+                messageBox.classList.add('opacity-0');
+            }, 3000);
+        }
+
+        // 初始化
+        generateControlPanel();
+        bindEventListeners();
+
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(registration => {
+                        console.log('Service Worker 註冊成功:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Service Worker 註冊失敗:', error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
