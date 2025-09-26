@@ -245,7 +245,7 @@
                 bleDevice.gatt.disconnect();
             } else {
                 userDisconnected = false;
-                bleDevice = null; 
+                bleDevice = null; // ★★★ 核心修正：手動連線時，強制清除舊裝置物件，觸發全新掃描 ★★★
                 connect();
             }
         });
@@ -266,7 +266,7 @@
             } else {
                 console.log("已達最大重連次數，停止自動重連。");
                 showMessage("自動重連失敗，請手動連線");
-                bleDevice = null;
+                bleDevice = null; // ★★★ 核心修正：重連失敗後，清除舊裝置物件 ★★★
             }
         }
         
