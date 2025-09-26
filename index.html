@@ -80,6 +80,7 @@
     <script>
         let bleDevice, bleCharacteristic;
         let bleBuffer = '';
+        let heartbeatInterval;
         let reconnectAttempts = 0;
         let userDisconnected = false;
         const MAX_RECONNECT_ATTEMPTS = 3;
@@ -198,13 +199,15 @@
             
             if (!bleDevice) {
                 try {
+                    console.log('LOG: 開始掃描藍牙裝置...');
                     updateStatus('正在搜尋...', 'connecting');
                     bleDevice = await navigator.bluetooth.requestDevice({
                         filters: [{ services: [SERVICE_UUID] }],
                     });
+                    console.log('LOG: 找到裝置:', bleDevice.name);
                     bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
                 } catch (error) {
-                    console.error('搜尋失敗:', error);
+                    console.error('LOG: 搜尋失敗:', error);
                     updateStatus('搜尋失敗', 'disconnected');
                     if (error.name !== 'NotFoundError') {
                         showMessage(`錯誤: ${error.message.split('.')[0]}`);
@@ -215,24 +218,36 @@
 
             try {
                 if (!bleDevice.gatt.connected) {
+                    console.log('LOG: 正在連線到 GATT 伺服器...');
                     updateStatus('正在連線...', 'connecting');
                     const server = await bleDevice.gatt.connect();
+                    console.log('LOG: 成功連線 GATT，正在獲取服務...');
                     const service = await server.getPrimaryService(SERVICE_UUID);
+                    console.log('LOG: 成功獲取服務，正在獲取特徵...');
                     bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                    console.log('LOG: 成功獲取特徵，正在啟動通知...');
                     await bleCharacteristic.startNotifications();
                     bleCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+                    console.log('LOG: 通知已啟動。');
                 }
 
                 updateStatus('已連線', 'connected');
                 if (reconnectAttempts > 0) {
                     showMessage('重連成功！');
+                    console.log('LOG: 自動重連成功。');
                 } else {
                     showMessage('連線成功！');
+                    console.log('LOG: 手動連線成功。');
                 }
                 reconnectAttempts = 0;
+                
+                if (heartbeatInterval) clearInterval(heartbeatInterval);
+                heartbeatInterval = setInterval(() => {
+                    sendBleCommand({ cmd: 'ping' });
+                }, 5000);
 
             } catch(error) {
-                console.error('連線失敗:', error);
+                console.error('LOG: 連線過程中發生錯誤:', error);
                 updateStatus('連線失敗', 'disconnected');
                 showMessage(`錯誤: ${error.message.split('.')[0]}`);
                 onDisconnected();
@@ -241,39 +256,46 @@
 
         connectBtn.addEventListener('click', async () => {
             if (bleDevice && bleDevice.gatt.connected) {
+                console.log('LOG: 使用者點擊「中斷連線」。');
                 userDisconnected = true;
                 bleDevice.gatt.disconnect();
             } else {
+                console.log('LOG: 使用者點擊「連線到冷凍櫃」。');
                 userDisconnected = false;
-                bleDevice = null; // ★★★ 核心修正：手動連線時，強制清除舊裝置物件，觸發全新掃描 ★★★
+                bleDevice = null; 
                 connect();
             }
         });
 
         function handleUnexpectedDisconnect() {
             if (userDisconnected) {
-                console.log("使用者主動斷線，不進行自動重連。");
+                console.log("LOG: 使用者主動斷線，不進行自動重連。");
                 return;
             }
             if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 reconnectAttempts++;
                 showMessage(`連線中斷，正在嘗試重連... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-                console.log(`意外斷線，將在 3 秒後嘗試第 ${reconnectAttempts} 次重連...`);
+                console.log(`LOG: 意外斷線，將在 3 秒後嘗試第 ${reconnectAttempts} 次重連...`);
                 setTimeout(() => {
-                    console.log("正在嘗試重連...");
+                    console.log("LOG: 正在執行自動重連...");
                     connect();
                 }, 3000);
             } else {
-                console.log("已達最大重連次數，停止自動重連。");
+                console.log("LOG: 已達最大重連次數，停止自動重連。");
                 showMessage("自動重連失敗，請手動連線");
-                bleDevice = null; // ★★★ 核心修正：重連失敗後，清除舊裝置物件 ★★★
+                bleDevice = null;
             }
         }
         
-        function onDisconnected() {
+        function onDisconnected(event) {
+            console.log('LOG: gattserverdisconnected 事件觸發。裝置:', event.target.name);
             updateStatus('已斷線', 'disconnected');
             
             bleCharacteristic = null;
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
 
             statusConfig.forEach(s => updateStatusUI(s.id, undefined));
             const currentStatus = statusText.textContent.split(' | ')[0];
@@ -283,6 +305,7 @@
                 handleUnexpectedDisconnect();
             } else {
                 showMessage('已安全斷線');
+                console.log('LOG: 已確認為使用者主動斷線。');
             }
         }
 
@@ -299,6 +322,7 @@
 
                 try {
                     const data = JSON.parse(jsonString);
+                    console.log('LOG: 收到並解析資料:', data);
 
                     if (data.t === 'p') {
                         Object.keys(data).forEach(shortKey => {
@@ -323,7 +347,7 @@
                         });
                     }
                 } catch (error) {
-                    console.error('解析 JSON 失敗:', error, '原始字串:', `"${jsonString}"`);
+                    console.error('LOG: 解析 JSON 失敗:', error, '原始字串:', `"${jsonString}"`);
                 }
             }
         }
@@ -336,8 +360,11 @@
                 const commandString = JSON.stringify(commandObj);
                 const encoder = new TextEncoder();
                 await bleCharacteristic.writeValueWithoutResponse(encoder.encode(commandString));
+                if (commandObj.cmd !== 'ping') {
+                    console.log('LOG: 指令已傳送:', commandString);
+                }
             } catch (error) {
-                console.error('傳送指令失敗:', error);
+                console.error('LOG: 傳送指令失敗:', error);
             }
         }
 
