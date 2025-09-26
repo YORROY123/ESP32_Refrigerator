@@ -85,7 +85,6 @@
     </div>
 
     <script>
-        // JavaScript 程式碼維持不變
         let bleDevice, bleCharacteristic;
         let bleBuffer = '';
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
@@ -98,6 +97,14 @@
         const messageBox = document.getElementById('message-box');
         const paramsContainer = document.getElementById('params-container');
         const statusGrid = document.getElementById('status-grid');
+        
+        // --- ★★★ 核心修正 #1: 建立短鍵名到長 UI ID 的對應表 ★★★ ---
+        const paramKeyMap = {
+            do: "defogoffset", dot: "defogofftemp", tt: "targetTemp", ct: "controlTemp",
+            eo: "eev_opening", di: "defrostInterval", dcs: "defrostCompressorSpeed",
+            dt1: "defrostT1", dh: "DEFROST_HEATER", dt2: "defrostT2",
+            shm: "SHDMin", shM: "SHDMax", es: "EEVStep"
+        };
         
         const paramsConfig = [
             { id: "defogoffset", name: "門框感測器偏移值", min: -20, max: 0, step: 1, unit: "°C" },
@@ -115,19 +122,20 @@
             { id: "EEVStep", name: "膨脹閥步進值", min: 1, max: 50, step: 1, unit: "" }
         ];
 
+        // --- ★★★ 核心修正 #2: 在狀態設定中加入 `key` 來對應短鍵名 ★★★ ---
         const statusConfig = [
-            { id: "storageTemperature1", name: "庫溫1", unit: "°C" },
-            { id: "storageTemperature2", name: "庫溫2", unit: "°C" },
-            { id: "evapCoilTemperature", name: "蒸發盤管溫", unit: "°C" },
-            { id: "SHD_temperature", name: "過熱度", unit: "°C" },
-            { id: "compressorSpeedFeedback", name: "壓縮機轉速", unit: "Hz" },
-            { id: "eevOpening", name: "膨脹閥開度", unit: "" },
-            { id: "returnAirTemperature", name: "回風溫度", unit: "°C" },
-            { id: "cpDischargeTemperature", name: "排氣溫度", unit: "°C" },
-            { id: "highPressure", name: "高壓", unit: "bar" },
-            { id: "lowPressure", name: "低壓", unit: "bar" },
-            { id: "systemMode", name: "系統模式", unit: "" },
-            { id: "errorCode", name: "錯誤碼", unit: "" }
+            { id: "storageTemperature1", name: "庫溫1", unit: "°C", key: "st1" },
+            { id: "storageTemperature2", name: "庫溫2", unit: "°C", key: "st2" },
+            { id: "evapCoilTemperature", name: "蒸發盤管溫", unit: "°C", key: "ect" },
+            { id: "SHD_temperature", name: "過熱度", unit: "°C", key: "shd" },
+            { id: "compressorSpeedFeedback", name: "壓縮機轉速", unit: "Hz", key: "csf" },
+            { id: "eevOpening", name: "膨脹閥開度", unit: "", key: "eev" },
+            { id: "returnAirTemperature", name: "回風溫度", unit: "°C", key: "rat" },
+            { id: "cpDischargeTemperature", name: "排氣溫度", unit: "°C", key: "cdt" },
+            { id: "highPressure", name: "高壓", unit: "bar", key: "hp" },
+            { id: "lowPressure", name: "低壓", unit: "bar", key: "lp" },
+            { id: "systemMode", name: "系統模式", unit: "", key: "sm" },
+            { id: "errorCode", name: "錯誤碼", unit: "", key: "err" } // 這個 key 在 JSON 的頂層
         ];
 
         function generateUI() {
@@ -238,14 +246,30 @@
 
                 try {
                     const data = JSON.parse(jsonString);
-                    console.log('成功解析資料:', data);
-                    if (data.type === 'params') {
-                        Object.keys(data).forEach(key => {
-                            if (key !== 'type') updateParamUI(key, data[key]);
+                    // console.log('成功解析資料:', data);
+
+                    // --- ★★★ 核心修正 #3: 解析新的 JSON 格式 ★★★ ---
+                    if (data.t === 'p') { // 'p' for params
+                        Object.keys(data).forEach(shortKey => {
+                            const paramId = paramKeyMap[shortKey];
+                            if (paramId) { // 檢查 shortKey 是否在我們的對應表中
+                                updateParamUI(paramId, data[shortKey]);
+                            }
                         });
-                    } else if (data.type === 'status' && data.modbusValues) {
+                    } else if (data.t === 's') { // 's' for status
+                         // 更新 Modbus 連線狀態文字
+                        const modbusStatusText = data.mbc ? 'Modbus 已連線' : 'Modbus 未連線';
+                        const currentStatus = statusText.textContent.split(' | ')[0];
+                        statusText.textContent = `${currentStatus} | ${modbusStatusText}`;
+                        
+                        // 更新數值
                         statusConfig.forEach(s => {
-                            const receivedValue = data.modbusValues[s.id];
+                            let receivedValue;
+                            if (s.key === 'err') { // 錯誤碼在頂層
+                                 receivedValue = data.err;
+                            } else if (data.mv) { // 其他數值在 mv 物件中
+                                 receivedValue = data.mv[s.key];
+                            }
                             updateStatusUI(s.id, receivedValue);
                         });
                     }
@@ -262,7 +286,7 @@
             try {
                 const commandString = JSON.stringify(commandObj);
                 const encoder = new TextEncoder();
-                await bleCharacteristic.writeValue(encoder.encode(commandString));
+                await bleCharacteristic.writeValueWithoutResponse(encoder.encode(commandString)); // 改用 WithoutResponse 提高效率
                 console.log('指令已傳送:', commandString);
             } catch (error) {
                 console.error('傳送失敗:', error);
@@ -287,6 +311,7 @@
         generateUI();
         bindEventListeners();
 
+        // 註冊 Service Worker (PWA 功能)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./service-worker.js')
@@ -297,4 +322,3 @@
     </script>
 </body>
 </html>
-
