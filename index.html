@@ -225,7 +225,12 @@
                 }
 
                 updateStatus('已連線', 'connected');
-                showMessage('連線成功！');
+                // ★★★ 核心修正 #1: 根據是否為重連來顯示不同訊息 ★★★
+                if (reconnectAttempts > 0) {
+                    showMessage('重連成功！');
+                } else {
+                    showMessage('連線成功！');
+                }
                 reconnectAttempts = 0;
                 
                 if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -237,7 +242,7 @@
                 console.error('連線失敗:', error);
                 updateStatus('連線失敗', 'disconnected');
                 showMessage(`錯誤: ${error.message.split('.')[0]}`);
-                handleUnexpectedDisconnect();
+                onDisconnected(); // 觸發 onDisconnected 來處理重連
             }
         }
 
@@ -247,11 +252,12 @@
                 bleDevice.gatt.disconnect();
             } else {
                 userDisconnected = false;
-                bleDevice = null; // 清除舊的裝置物件，強制重新掃描
+                bleDevice = null; 
                 connect();
             }
         });
 
+        // ★★★ 核心修正 #2: 將重連邏輯獨立成函式 ★★★
         function handleUnexpectedDisconnect() {
             if (userDisconnected) {
                 console.log("使用者主動斷線，不進行自動重連。");
@@ -259,6 +265,7 @@
             }
             if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 reconnectAttempts++;
+                showMessage(`連線中斷，正在嘗試重連... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
                 console.log(`意外斷線，將在 3 秒後嘗試第 ${reconnectAttempts} 次重連...`);
                 setTimeout(() => {
                     console.log("正在嘗試重連...");
@@ -266,13 +273,13 @@
                 }, 3000);
             } else {
                 console.log("已達最大重連次數，停止自動重連。");
+                showMessage("自動重連失敗，請手動連線");
                 bleDevice = null;
             }
         }
         
         function onDisconnected() {
             updateStatus('已斷線', 'disconnected');
-            showMessage('藍芽連線已中斷');
             
             bleCharacteristic = null;
             if (heartbeatInterval) {
@@ -283,8 +290,13 @@
             statusConfig.forEach(s => updateStatusUI(s.id, undefined));
             const currentStatus = statusText.textContent.split(' | ')[0];
             statusText.textContent = currentStatus;
-
-            handleUnexpectedDisconnect();
+            
+            // ★★★ 核心修正 #3: 呼叫新的重連處理函式 ★★★
+            if (!userDisconnected) {
+                handleUnexpectedDisconnect();
+            } else {
+                showMessage('已安全斷線');
+            }
         }
 
         function handleNotifications(event) {
