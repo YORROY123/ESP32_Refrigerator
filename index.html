@@ -192,26 +192,10 @@
                 alert('您的瀏覽器不支援 Web Bluetooth！'); return;
             }
             
-            // --- ★★★ 核心修正：強化斷線邏輯 ★★★ ---
+            // --- ★★★ 核心修正：簡化斷線邏輯，回歸標準流程 ★★★ ---
             if (bleDevice && bleDevice.gatt.connected) {
-                console.log('正在嘗試主動斷線...');
-                try {
-                    // 1. 主動發送一個斷線指令給 ESP32，做雙重確認
-                    await sendBleCommand({ command: 'disconnect_request' });
-                    // 2. 短暫延遲後再由瀏覽器執行斷線，確保指令有時間送出
-                    setTimeout(() => {
-                        if (bleDevice && bleDevice.gatt.connected) {
-                            bleDevice.gatt.disconnect();
-                        }
-                    }, 200);
-                } catch (error) {
-                    console.error('主動斷線時發生錯誤:', error);
-                    // 即使發送失敗，也嘗試由瀏覽器強制斷線
-                    if (bleDevice && bleDevice.gatt.connected) {
-                       bleDevice.gatt.disconnect();
-                    }
-                }
-
+                console.log('正在由瀏覽器發起標準斷線...');
+                bleDevice.gatt.disconnect();
             } else {
                 try {
                     updateStatus('正在搜尋...', 'connecting');
@@ -300,7 +284,6 @@
             } catch (error) {
                 console.error('傳送失敗:', error);
                 showMessage('傳送指令失敗！');
-                throw error; // 拋出錯誤讓呼叫者知道
             }
         }
 
