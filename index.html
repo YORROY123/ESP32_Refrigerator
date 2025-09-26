@@ -80,6 +80,11 @@
     <script>
         let bleDevice, bleCharacteristic;
         let bleBuffer = '';
+        let heartbeatInterval;
+        let reconnectAttempts = 0;
+        let userDisconnected = false;
+        const MAX_RECONNECT_ATTEMPTS = 3;
+
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
         
@@ -187,48 +192,99 @@
             });
         }
 
-        connectBtn.addEventListener('click', async () => {
+        async function connect() {
             if (!navigator.bluetooth) {
                 alert('您的瀏覽器不支援 Web Bluetooth！'); return;
             }
             
-            // --- ★★★ 核心修正：簡化斷線邏輯，回歸標準流程 ★★★ ---
-            if (bleDevice && bleDevice.gatt.connected) {
-                console.log('正在由瀏覽器發起標準斷線...');
-                bleDevice.gatt.disconnect();
-            } else {
+            if (!bleDevice) {
                 try {
                     updateStatus('正在搜尋...', 'connecting');
                     bleDevice = await navigator.bluetooth.requestDevice({
                         filters: [{ services: [SERVICE_UUID] }],
                     });
                     bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                } catch (error) {
+                    console.error('搜尋失敗:', error);
+                    updateStatus('搜尋失敗', 'disconnected');
+                    if (error.name !== 'NotFoundError') {
+                        showMessage(`錯誤: ${error.message.split('.')[0]}`);
+                    }
+                    return;
+                }
+            }
+
+            try {
+                if (!bleDevice.gatt.connected) {
                     updateStatus('正在連線...', 'connecting');
                     const server = await bleDevice.gatt.connect();
                     const service = await server.getPrimaryService(SERVICE_UUID);
                     bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
                     await bleCharacteristic.startNotifications();
                     bleCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-                    updateStatus('已連線', 'connected');
-                    showMessage('連線成功！');
-                } catch (error) {
-                    console.error('連線失敗:', error);
-                    updateStatus('連線失敗', 'disconnected');
-                    if (error.name !== 'NotFoundError') {
-                        showMessage(`錯誤: ${error.message.split('.')[0]}`);
-                    }
                 }
+
+                updateStatus('已連線', 'connected');
+                showMessage('連線成功！');
+                reconnectAttempts = 0;
+                
+                if (heartbeatInterval) clearInterval(heartbeatInterval);
+                heartbeatInterval = setInterval(() => {
+                    sendBleCommand({ cmd: 'ping' });
+                }, 5000);
+
+            } catch(error) {
+                console.error('連線失敗:', error);
+                updateStatus('連線失敗', 'disconnected');
+                showMessage(`錯誤: ${error.message.split('.')[0]}`);
+                handleUnexpectedDisconnect();
+            }
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            if (bleDevice && bleDevice.gatt.connected) {
+                userDisconnected = true;
+                bleDevice.gatt.disconnect();
+            } else {
+                userDisconnected = false;
+                bleDevice = null; // 清除舊的裝置物件，強制重新掃描
+                connect();
             }
         });
+
+        function handleUnexpectedDisconnect() {
+            if (userDisconnected) {
+                console.log("使用者主動斷線，不進行自動重連。");
+                return;
+            }
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                console.log(`意外斷線，將在 3 秒後嘗試第 ${reconnectAttempts} 次重連...`);
+                setTimeout(() => {
+                    console.log("正在嘗試重連...");
+                    connect();
+                }, 3000);
+            } else {
+                console.log("已達最大重連次數，停止自動重連。");
+                bleDevice = null;
+            }
+        }
         
         function onDisconnected() {
             updateStatus('已斷線', 'disconnected');
             showMessage('藍芽連線已中斷');
-            bleDevice = null;
+            
             bleCharacteristic = null;
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+
             statusConfig.forEach(s => updateStatusUI(s.id, undefined));
             const currentStatus = statusText.textContent.split(' | ')[0];
             statusText.textContent = currentStatus;
+
+            handleUnexpectedDisconnect();
         }
 
         function handleNotifications(event) {
@@ -274,16 +330,15 @@
         }
         
         async function sendBleCommand(commandObj) {
-            if (!bleCharacteristic) {
-                showMessage('尚未連線，無法傳送指令'); return;
+            if (!bleCharacteristic || !bleDevice.gatt.connected) {
+                return;
             }
             try {
                 const commandString = JSON.stringify(commandObj);
                 const encoder = new TextEncoder();
                 await bleCharacteristic.writeValueWithoutResponse(encoder.encode(commandString));
             } catch (error) {
-                console.error('傳送失敗:', error);
-                showMessage('傳送指令失敗！');
+                console.error('傳送指令失敗:', error);
             }
         }
 
