@@ -30,6 +30,10 @@
             background-clip: text;
             color: transparent;
         }
+        /* ★★★ 新增：用於切換頁面的樣式 ★★★ */
+        .page { display: none; }
+        .page-active { display: grid; } /* 主頁使用 grid */
+        #modbus-monitor-page.page-active { display: block; } /* Modbus 頁使用 block */
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen text-gray-800 p-4">
@@ -46,13 +50,20 @@
                     <div id="status-dot" class="status-dot status-disconnected"></div>
                     <span id="status-text" class="font-semibold">已斷線</span>
                 </div>
-                <button id="connect-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-                    連線到冷凍櫃
-                </button>
+                <!-- ★★★ 新增：頁面切換按鈕 ★★★ -->
+                <div class="flex gap-2">
+                    <button id="toggle-page-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors opacity-50 pointer-events-none">
+                        查看 Modbus 暫存器
+                    </button>
+                    <button id="connect-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                        連線到冷凍櫃
+                    </button>
+                </div>
             </div>
         </div>
 
-        <main id="control-panel" class="grid grid-cols-1 lg:grid-cols-3 gap-6 opacity-50 pointer-events-none">
+        <!-- ★★★ 核心修正：將主控制面板包裝在一個 .page 元素中 ★★★ -->
+        <main id="control-panel" class="page page-active grid-cols-1 lg:grid-cols-3 gap-6 opacity-50 pointer-events-none">
             
             <div id="params-container" class="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <!-- 參數卡片將由 JS 動態生成於此 -->
@@ -71,8 +82,16 @@
                     </button>
                 </div>
             </div>
-
         </main>
+
+        <!-- ★★★ 新增：Modbus 監控頁面 ★★★ -->
+        <div id="modbus-monitor-page" class="page param-card opacity-50 pointer-events-none">
+             <h2 class="text-2xl font-bold mb-4 text-center">Modbus 暫存器 (Register 0-50)</h2>
+             <div id="modbus-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-3">
+                <!-- 暫存器項目將由 JS 動態生成於此 -->
+             </div>
+        </div>
+
 
         <div id="message-box" class="fixed bottom-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-xl opacity-0 transition-opacity duration-300"></div>
     </div>
@@ -84,6 +103,9 @@
         let reconnectAttempts = 0;
         let userDisconnected = false;
         const MAX_RECONNECT_ATTEMPTS = 3;
+        
+        // ★★★ 新增：用於儲存暫存器數值的 Map ★★★
+        let registerMap = new Map();
 
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
@@ -96,6 +118,11 @@
         const paramsContainer = document.getElementById('params-container');
         const statusGrid = document.getElementById('status-grid');
         
+        // ★★★ 新增：Modbus 監控頁面的元素 ★★★
+        const modbusMonitorPage = document.getElementById('modbus-monitor-page');
+        const modbusGrid = document.getElementById('modbus-grid');
+        const togglePageBtn = document.getElementById('toggle-page-btn');
+
         const paramKeyMap = {
             do: "defogoffset", dot: "defogofftemp", tt: "targetTemp", ct: "controlTemp",
             eo: "eev_opening", di: "defrostInterval", dcs: "defrostCompressorSpeed",
@@ -149,6 +176,17 @@
                     <span class="text-xs text-gray-500">${s.name}</span>
                     <span id="status-${s.id}" class="font-bold text-lg text-blue-600">--</span>
                 </div>`).join('');
+            
+            // ★★★ 新增：產生 Modbus 監控格 ★★★
+            modbusGrid.innerHTML = '';
+            for (let i = 0; i <= 50; i++) {
+                registerMap.set(i, '--'); // 初始化 Map
+                modbusGrid.innerHTML += `
+                    <div class="flex flex-col items-center justify-center p-2 bg-gray-50 rounded-md">
+                        <span class="text-xs text-gray-500">Reg ${i}</span>
+                        <span id="reg-${i}" class="font-bold text-lg text-blue-600">--</span>
+                    </div>`;
+            }
         }
 
         function updateParamUI(paramId, value) {
@@ -167,6 +205,18 @@
                 const isValueAvailable = value !== undefined && value !== null;
                 const displayValue = isValueAvailable ? (typeof value === 'number' ? value.toFixed(1) : value) : '--';
                 statusElem.textContent = `${displayValue} ${config.unit || ''}`;
+            }
+        }
+
+        // ★★★ 新增：更新 Modbus 監控頁面 UI 的函式 ★★★
+        function updateRegisterUI() {
+            if (modbusMonitorPage.classList.contains('page-active')) {
+                for (let [reg, value] of registerMap) {
+                    const regElem = document.getElementById(`reg-${reg}`);
+                    if (regElem) {
+                        regElem.textContent = value;
+                    }
+                }
             }
         }
         
@@ -189,6 +239,21 @@
             
             document.getElementById('defrost-btn').addEventListener('click', () => {
                 sendBleCommand({ command: 'force_defrost' });
+            });
+
+            // ★★★ 新增：頁面切換按鈕的事件 ★★★
+            togglePageBtn.addEventListener('click', () => {
+                const isMainPage = controlPanel.classList.contains('page-active');
+                if (isMainPage) {
+                    controlPanel.classList.remove('page-active');
+                    modbusMonitorPage.classList.add('page-active');
+                    togglePageBtn.textContent = '返回主控台';
+                    updateRegisterUI(); // 切換時立即更新一次
+                } else {
+                    controlPanel.classList.add('page-active');
+                    modbusMonitorPage.classList.remove('page-active');
+                    togglePageBtn.textContent = '查看 Modbus 暫存器';
+                }
             });
         }
 
@@ -218,10 +283,10 @@
 
             try {
                 if (!bleDevice.gatt.connected) {
-                    console.log('LOG: 正在連線到 GATT 伺服器...');
+                    console.log('LOG: GATT 連線中...');
                     updateStatus('正在連線...', 'connecting');
                     const server = await bleDevice.gatt.connect();
-                    console.log('LOG: 成功連線 GATT，正在獲取服務...');
+                    console.log('LOG: GATT 已連線，正在獲取服務...');
                     const service = await server.getPrimaryService(SERVICE_UUID);
                     console.log('LOG: 成功獲取服務，正在獲取特徵...');
                     bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
@@ -304,7 +369,6 @@
             if (!userDisconnected) {
                 handleUnexpectedDisconnect();
             } else {
-                // ★★★ 核心修正：依照使用者要求，顯示 ESP32 會繼續運作的訊息 ★★★
                 showMessage('已安全斷線。ESP32 將依照最後的設定繼續運行。');
                 console.log('LOG: 已確認為使用者主動斷線。');
             }
@@ -323,7 +387,7 @@
 
                 try {
                     const data = JSON.parse(jsonString);
-                    // console.log('LOG: 收到並解析資料:', data); // 可選：打開以查看詳細資料
+                    // console.log('LOG: 收到並解析資料:', data);
 
                     if (data.t === 'p') {
                         Object.keys(data).forEach(shortKey => {
@@ -346,7 +410,20 @@
                             }
                             updateStatusUI(s.id, receivedValue);
                         });
+                    } 
+                    // ★★★ 核心修正：處理分頁的暫存器資料 ★★★
+                    else if (data.t === 'reg' && data.d) {
+                        const pageIndex = data.p || 0;
+                        const startIndex = pageIndex * 10;
+                        data.d.forEach((val, idx) => {
+                            registerMap.set(startIndex + idx, val);
+                        });
+                        // 只有在 Modbus 頁面開啟時才更新 UI，以節省效能
+                        if (modbusMonitorPage.classList.contains('page-active')) {
+                            updateRegisterUI();
+                        }
                     }
+
                 } catch (error) {
                     console.error('LOG: 解析 JSON 失敗:', error, '原始字串:', `"${jsonString}"`);
                 }
@@ -373,8 +450,15 @@
             statusText.textContent = text;
             statusDot.className = `status-dot status-${statusClass}`;
             connectBtn.textContent = (statusClass === 'connected') ? '中斷連線' : '連線到冷凍櫃';
-            controlPanel.classList.toggle('opacity-50', statusClass !== 'connected');
-            controlPanel.classList.toggle('pointer-events-none', statusClass !== 'connected');
+            
+            const isConnected = (statusClass === 'connected');
+            // ★★★ 核心修正：同時更新兩個頁面和切換按鈕的狀態 ★★★
+            const elementsToToggle = [controlPanel, modbusMonitorPage, togglePageBtn];
+            
+            elementsToToggle.forEach(el => {
+                el.classList.toggle('opacity-50', !isConnected);
+                el.classList.toggle('pointer-events-none', !isConnected);
+            });
         }
         
         function showMessage(text) {
