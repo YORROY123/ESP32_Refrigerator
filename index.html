@@ -304,7 +304,8 @@
             if (!userDisconnected) {
                 handleUnexpectedDisconnect();
             } else {
-                showMessage('已安全斷線');
+                // ★★★ 核心修正：依照使用者要求，顯示 ESP32 會繼續運作的訊息 ★★★
+                showMessage('已安全斷線。ESP32 將依照最後的設定繼續運行。');
                 console.log('LOG: 已確認為使用者主動斷線。');
             }
         }
