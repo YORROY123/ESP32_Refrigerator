@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 冷凍櫃控制</title>
+    <title>嵌入式裝置 冷凍櫃控制</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="冷凍櫃控制">
@@ -40,7 +40,7 @@
     <div class="w-full max-w-7xl mx-auto">
         <header class="text-center mb-6">
             <div class="logo-text text-4xl mb-2">ITRI GEL</div>
-            <h1 class="text-2xl font-bold">ESP32 冷凍櫃控制介面</h1>
+            <h1 class="text-2xl font-bold">嵌入式裝置 冷凍櫃控制介面</h1>
             <p class="text-gray-500">透過 Web Bluetooth 即時監控與調整參數</p>
         </header>
 
@@ -369,7 +369,7 @@
             if (!userDisconnected) {
                 handleUnexpectedDisconnect();
             } else {
-                showMessage('已安全斷線。ESP32 將依照最後的設定繼續運行。');
+                showMessage('已安全斷線。嵌入式裝置 將依照最後的設定繼續運行。');
                 console.log('LOG: 已確認為使用者主動斷線。');
             }
         }
